@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type RepoData = {
   repo: string;
@@ -39,29 +39,96 @@ function days(n: number): string {
   return m === 1 ? "1 month ago" : `${m} months ago`;
 }
 
+const FUN_LOADING_LINES = [
+  "knocking on github's door…",
+  "counting stars…",
+  "reading the commit history…",
+  "checking if anyone still works here…",
+];
+
 export default function Home() {
-  const [url, setUrl] = useState("");
+  // reading url/localStorage during first render — this needs a browser so it
+  // runs client-side. wrapping in useState initializer keeps one render, not two.
+  const [url, setUrl] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return new URLSearchParams(window.location.search).get("repo") ?? "";
+  });
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<RepoData | null>(null);
   const [error, setError] = useState("");
+  const [loadingLine, setLoadingLine] = useState(FUN_LOADING_LINES[0]);
+  const [recent, setRecent] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const saved = JSON.parse(localStorage.getItem("gitpulse-recents") ?? "[]");
+      return Array.isArray(saved) ? saved.slice(0, 5) : [];
+    } catch {
+      // corrupted storage, whatever, start fresh
+      return [];
+    }
+  });
 
-  async function handleSearch(e: React.FormEvent) {
-    e.preventDefault();
+  // rotate the loading message every ~900ms so long fetches don't feel dead
+  useEffect(() => {
+    if (!loading) return;
+    let i = 0;
+    const t = setInterval(() => {
+      i = (i + 1) % FUN_LOADING_LINES.length;
+      setLoadingLine(FUN_LOADING_LINES[i]);
+    }, 900);
+    return () => clearInterval(t);
+  }, [loading]);
+
+  function remember(repo: string) {
+    setRecent((prev) => {
+      const next = [repo, ...prev.filter((r) => r !== repo)].slice(0, 5);
+      try {
+        localStorage.setItem("gitpulse-recents", JSON.stringify(next));
+      } catch {
+        // private browsing might block storage, not a big deal
+      }
+      return next;
+    });
+  }
+
+  async function analyze(input: string) {
     setLoading(true);
     setError("");
     setData(null);
 
     try {
-      const res = await fetch(`/api/analyze?repo=${encodeURIComponent(url)}`);
+      const res = await fetch(`/api/analyze?repo=${encodeURIComponent(input)}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Something broke, try again.");
       setData(json);
+      remember(json.repo);
+      // update the url bar so the report is linkable
+      window.history.replaceState(null, "", `/?repo=${encodeURIComponent(json.repo)}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error, try again.");
     } finally {
       setLoading(false);
     }
   }
+
+  async function handleSearch(e: React.FormEvent) {
+    e.preventDefault();
+    analyze(url);
+  }
+
+  // keyboard shortcut: "/" focuses the input. borrowed from a lot of
+  // hacker-news-adjacent sites. skip it when typing in any input.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (e.key === "/" && tag !== "INPUT" && tag !== "TEXTAREA") {
+        e.preventDefault();
+        document.getElementById("repo-input")?.focus();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const maxCommits = data
     ? Math.max(...data.recentCommitWeeks, 1)
@@ -85,6 +152,7 @@ export default function Home() {
 
         <form onSubmit={handleSearch} className="flex gap-2">
           <input
+            id="repo-input"
             type="text"
             required
             spellCheck={false}
@@ -102,6 +170,52 @@ export default function Home() {
             {loading ? "Checking…" : "Analyze"}
           </button>
         </form>
+
+        {/* examples for the "i don't know what to type" crowd */}
+        {!data && !loading && recent.length === 0 && (
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-[var(--muted)]">
+            <span>try:</span>
+            {["facebook/react", "torvalds/linux", "midudev/la-velada-web-oficial"].map((r) => (
+              <button
+                key={r}
+                type="button"
+                onClick={() => {
+                  setUrl(r);
+                  analyze(r);
+                }}
+                className="rounded border border-[var(--line)] px-2 py-0.5 hover:border-[var(--accent)] hover:text-[var(--foreground)]"
+              >
+                {r}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* recent searches — small but nice to have */}
+        {recent.length > 0 && !data && !loading && (
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-[var(--muted)]">
+            <span>recent:</span>
+            {recent.map((r) => (
+              <button
+                key={r}
+                type="button"
+                onClick={() => {
+                  setUrl(r);
+                  analyze(r);
+                }}
+                className="rounded border border-[var(--line)] px-2 py-0.5 hover:border-[var(--accent)] hover:text-[var(--foreground)]"
+              >
+                {r}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {loading && (
+          <p aria-live="polite" className="mt-5 font-mono text-sm text-[var(--muted)]">
+            {loadingLine}
+          </p>
+        )}
 
         {error && (
           <p
@@ -126,6 +240,20 @@ export default function Home() {
                   {data.cached ? "cached" : "fresh"}
                 </span>
               </div>
+
+              {/* copy-link button — handy for dropping the report in slack */}
+              <button
+                type="button"
+                onClick={() => {
+                  // best-effort copy; not worth angering anyone over the fallback
+                  navigator.clipboard
+                    ?.writeText(window.location.href)
+                    .catch(() => {});
+                }}
+                className="font-mono text-[10px] text-[var(--muted)] underline decoration-dotted hover:text-[var(--accent)]"
+              >
+                copy report link
+              </button>
 
               {/* momentum gauge */}
               <div className="mt-5">

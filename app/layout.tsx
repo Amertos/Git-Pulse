@@ -1,27 +1,22 @@
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
-const sans = Geist({
-  variable: "--font-sans",
-  subsets: ["latin"],
-});
-
-const mono = Geist_Mono({
-  variable: "--font-mono",
-  subsets: ["latin"],
-});
-
-export const metadata: Metadata = {
-  title: "GitPulse — GitHub repo health reports",
-  description:
-    "Turn any GitHub repo into a portfolio-ready health report in seconds.",
+// i hope these fonts work lol
+export const metadata = {
+  title: "GitPulse - check ur repo",
+  description: "homework project for dev class",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
-    <html lang="en" className={`${sans.variable} ${mono.variable} antialiased`}>
-      <body>{children}</body>
+    <html lang="en">
+      <body className="antialiased">
+        {/* navigation maybe?? nah too much work */}
+        {children}
+      </body>
     </html>
   );
 }
