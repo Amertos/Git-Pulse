@@ -10,7 +10,63 @@
   --accent: #f2b21b; /* amber warming, like old terminal amber */
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
+}
+
+::selection {
+  background: var(--accent);
+  color: #1a1508;
+}
+
+/* --- entrance animations ------------------------------- */
+/* staggered by hand because tailwind's delay utilities got fiddly */
+
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes fill-bar {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@keyframes grow-col {
+  from { transform: scaleY(0); }
+  to { transform: scaleY(1); }
+}
+
+/* the report card pops in, cards after it trail slightly */
+.anim-rise {
+  animation: rise-in 0.45s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+.anim-delay-1 { animation-delay: 0.08s; }
+.anim-delay-2 { animation-delay: 0.16s; }
+.anim-delay-3 { animation-delay: 0.24s; }
+.anim-delay-4 { animation-delay: 0.32s; }
+
+/* gauge + language bar grow from left; origin matters */
+.anim-fill {
+  transform-origin: left;
+  animation: fill-bar 0.7s cubic-bezier(0.2, 0.7, 0.3, 1) 0.15s both;
+}
+
+/* commit bars sprout upward, each week a hair later */
+.anim-col {
+  transform-origin: bottom;
+  animation: grow-col 0.6s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+/* respect people who turn this stuff off */
+@media (prefers-reduced-motion: reduce) {
+  .anim-rise, .anim-fill, .anim-col {
+    animation: none;
+  }
+  html { scroll-behavior: auto; }
 }
