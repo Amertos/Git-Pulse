@@ -1,26 +1,22 @@
-# Git-Pulse
+# GitPulse 🚀
 
-Paste a GitHub link, get back a report card: stars, forks, open issues, language
-mix, commit activity over the last 12 weeks, contributor count, and a rough
-"momentum" score for whether the repo is alive or quietly dying.
+This is my project for checking if a github repo is "healthy" or just dead. It shows stars, forks, and some charts about commits and stuff.
 
-Built with Next.js + TypeScript + Tailwind. No auth, no database — just the
-public GitHub API (with a 10-minute cache so I don't burn through the
-rate limit).
+## How to run it fr
+1. `npm install` (takes forever lol)
+2. Create a `.env.local` file and put `GITHUB_TOKEN=your_token_here`
+3. `npm run dev`
+4. Go to `http://localhost:3000` (or 4319 if u changed it)
 
-## Run it
+## Stuff I used
+- Next.js (pain in the ass)
+- Tailwind CSS
+- Github API (rate limits are L)
+- Some math for the commit chart
 
-```
-npm install
-npm run dev
-```
+## ToDo (maybe)
+- [ ] add dark mode properly
+- [ ] make it look better on mobile
+- [ ] fix the bug where some repos dont load
 
-Then open http://localhost:3210 and paste a repo like `vercel/next.js`.
-
-Optional: set `GITHUB_TOKEN` in `.env.local` for a higher rate limit.
-
-## Known gaps
-
-- Momentum score formula is hand-tuned, not scientific
-- Commit history only looks at the most recent 100 commits
-- No tests yet (todo)
+*Built with stress and monster energy.*

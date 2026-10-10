@@ -1,0 +1,48 @@
+
+> app-scaffold@0.1.0 dev
+> next dev --port 3210
+
+▲ Next.js 16.4.0 (Turbopack)
+- Local:         http://localhost:3210
+- Network:       http://192.168.100.67:3210
+✓ Ready in 1880ms
+⚠ Warning: Next.js ignored package-lock.json in C:\Users\LENOVO because it is outside the current Git repository (C:\Users\LENOVO\3D Objects\ZA LAPTOP).
+ To use this directory, set `turbopack.root` in your Next.js config.
+
+✓ Running next.config.ts took 169ms
+- Cache Components enabled
+- Partial Prefetching enabled
+
+ GET / 200 in 1127ms (next.js: 638ms, application-code: 489ms)
+ GET /api/analyze?repo=vercel/next.js 200 in 992ms (next.js: 206ms, application-code: 786ms)
+ GET /api/analyze?repo=vercel/next.js 200 in 14ms (next.js: 4ms, application-code: 10ms)
+ GET /api/analyze?repo=not-a-real-user-xyz/nope-nope 404 in 309ms (next.js: 3ms, application-code: 306ms)
+ GET / 200 in 89ms (next.js: 4ms, application-code: 85ms)
+ GET / 200 in 115ms (next.js: 5ms, application-code: 110ms)
+ GET / 200 in 143ms (next.js: 5ms, application-code: 138ms)
+ GET / 200 in 230ms (next.js: 8ms, application-code: 223ms)
+ GET /api/analyze?repo=vercel%2Fnext.js 200 in 22ms (next.js: 8ms, application-code: 14ms)
+ GET /api/analyze?repo=vercel/next.js 200 in 625ms (next.js: 3ms, application-code: 621ms)
+ GET / 200 in 102ms (next.js: 3ms, application-code: 99ms)
+ GET / 200 in 86ms (next.js: 3ms, application-code: 83ms)
+ GET /api/analyze?repo=facebook/react 200 in 788ms (next.js: 3ms, application-code: 785ms)
+ GET /api/analyze?repo=not-real-user-xyz/no-such-repo-42 404 in 306ms (next.js: 4ms, application-code: 303ms)
+ GET /api/analyze?repo=zzz 400 in 15ms (next.js: 3ms, application-code: 12ms)
+ GET / 200 in 229ms (next.js: 5ms, application-code: 224ms)
+ GET /api/analyze?repo=https%3A%2F%2Fgithub.com%2Fxtool-org%2Fxtool 200 in 784ms (next.js: 3ms, application-code: 781ms)
+✓ Compiled in 94ms
+ GET / 200 in 93ms (next.js: 12ms, application-code: 81ms)
+✓ Compiled in 85ms
+✓ Compiled in 97ms
+✓ Compiled in 91ms
+✓ Compiled in 131ms
+✓ Compiled in 87ms
+✓ Compiled in 36ms
+ GET / 200 in 103ms (next.js: 3ms, application-code: 100ms)
+ GET /?repo=torvalds/linux 200 in 138ms (next.js: 5ms, application-code: 133ms)
+ GET /api/analyze?repo=torvalds%2Flinux 200 in 593ms (next.js: 6ms, application-code: 587ms)
+ GET / 200 in 77ms (next.js: 3ms, application-code: 74ms)
+ GET /?repo=torvalds/linux 200 in 73ms (next.js: 3ms, application-code: 70ms)
+ GET /api/analyze?repo=torvalds/linux 200 in 11ms (next.js: 2ms, application-code: 9ms)
+✓ Compiled in 92ms
+ GET /?repo=torvalds%2Flinux 200 in 56ms (next.js: 4ms, application-code: 51ms)
