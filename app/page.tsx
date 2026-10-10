@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-interface AnalyzeResult {
+type RepoData = {
   repo: string;
   description: string | null;
   stars: number;
@@ -12,160 +12,224 @@ interface AnalyzeResult {
   license: string | null;
   createdAt: string;
   lastPushDaysAgo: number;
-  languages: { name: string; bytes: number; percent: number }[];
+  languages: { name: string; percent: number }[];
   recentCommitWeeks: number[];
-  analyzedAt: string;
-  cached: boolean;
-  error?: string;
+  contributorsCount: number;
+  issuesPerBranch: number | null;
+  momentumScore: number;
+  cached?: boolean;
+};
+
+// picked these to match the amber accent in globals.css
+const BAR_COLORS = ["#f2b21b", "#e07a5f", "#81b29a", "#7b8cde", "#b58392", "#5f7d95", "#a1887f", "#78909c"];
+
+function momentumLabel(score: number): string {
+  if (score >= 70) return "Open-source fire";
+  if (score >= 45) return "Healthy and humming";
+  if (score >= 20) return "Alive but coasting";
+  if (score > 0) return "Barely a pulse";
+  return "No pulse";
+}
+
+function days(n: number): string {
+  if (n === 0) return "today";
+  if (n === 1) return "yesterday";
+  if (n < 30) return `${n} days ago`;
+  const m = Math.floor(n / 30);
+  return m === 1 ? "1 month ago" : `${m} months ago`;
 }
 
 export default function Home() {
-  const [input, setInput] = useState("");
+  const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<AnalyzeResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [data, setData] = useState<RepoData | null>(null);
+  const [error, setError] = useState("");
 
-  async function analyze(e: React.FormEvent) {
+  async function handleSearch(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    setError(null);
-    setResult(null);
+    setError("");
+    setData(null);
+
     try {
-      const res = await fetch(
-        `/api/analyze?repo=${encodeURIComponent(input)}`
-      );
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? `Request failed (${res.status})`);
-      setResult(data);
+      const res = await fetch(`/api/analyze?repo=${encodeURIComponent(url)}`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Something broke, try again.");
+      setData(json);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      setError(err instanceof Error ? err.message : "Unknown error, try again.");
     } finally {
       setLoading(false);
     }
   }
 
-  const maxWeek = result ? Math.max(...result.recentCommitWeeks, 1) : 1;
+  const maxCommits = data
+    ? Math.max(...data.recentCommitWeeks, 1)
+    : 1;
 
   return (
-    <div className="flex flex-col flex-1 items-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex w-full max-w-2xl flex-col items-center gap-8 px-6 py-20">
-        <div className="text-center">
-          <h1 className="text-4xl font-semibold tracking-tight text-black dark:text-zinc-50">
-            Git<span className="text-emerald-500">Pulse</span>
+    <div className="min-h-screen px-4 pb-16">
+      <main className="mx-auto max-w-xl pt-14">
+        <header className="mb-10">
+          <h1 className="flex items-baseline gap-2 text-4xl font-semibold tracking-tight">
+            Git<span className="text-[var(--accent)]">Pulse</span>
+            <span className="font-mono text-[10px] uppercase tracking-widest text-[var(--muted)]">
+              v0.1
+            </span>
           </h1>
-          <p className="mt-3 text-lg text-zinc-600 dark:text-zinc-400">
-            Paste a GitHub repo. Get a health report in seconds.
+          <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">
+            Paste a GitHub link. Get a report card on whether the repo is thriving,
+            coasting, or quietly dying — stars, language mix, commit rhythm, the lot.
           </p>
-        </div>
+        </header>
 
-        <form onSubmit={analyze} className="flex w-full gap-2">
+        <form onSubmit={handleSearch} className="flex gap-2">
           <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="https://github.com/vercel/next.js"
-            className="flex-1 rounded-lg border border-zinc-300 bg-white px-4 py-3 text-sm text-zinc-900 outline-none focus:border-emerald-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+            type="text"
+            required
+            spellCheck={false}
+            autoCapitalize="off"
+            placeholder="vercel/next.js or a full URL"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            className="min-w-0 flex-1 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3.5 py-2.5 text-sm text-[var(--foreground)] placeholder:text-[#5c6069] outline-none focus:border-[var(--accent)]"
           />
           <button
             type="submit"
-            disabled={loading || !input.trim()}
-            className="rounded-lg bg-emerald-600 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:opacity-50"
+            disabled={loading}
+            className="shrink-0 rounded-lg bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-[#1a1508] transition-opacity disabled:opacity-40 hover:opacity-85"
           >
-            {loading ? "Analyzing…" : "Analyze"}
+            {loading ? "Checking…" : "Analyze"}
           </button>
         </form>
 
         {error && (
-          <p className="w-full rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+          <p
+            role="alert"
+            className="mt-5 rounded-lg border border-[#5a3a3a] bg-[#2a1e20] px-4 py-3 text-sm text-[#e79a9a]"
+          >
             {error}
           </p>
         )}
 
-        {result && (
-          <section className="flex w-full flex-col gap-6 rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950">
-            <header>
-              <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">
-                {result.repo}
-              </h2>
-              {result.description && (
-                <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-                  {result.description}
-                </p>
-              )}
-              {result.cached && (
-                <p className="mt-1 text-xs text-zinc-400">(cached result)</p>
-              )}
-            </header>
+        {data && (
+          <section className="mt-8 space-y-4 pb-16">
+            <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <h2 className="truncate text-xl font-semibold">{data.repo}</h2>
+                  <p className="mt-1 text-sm text-[var(--muted)]">
+                    {data.description ?? "No description provided."}
+                  </p>
+                </div>
+                <span className="shrink-0 font-mono text-[10px] uppercase text-[var(--muted)]">
+                  {data.cached ? "cached" : "fresh"}
+                </span>
+              </div>
 
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-              <Stat label="Stars" value={result.stars.toLocaleString()} />
-              <Stat label="Forks" value={result.forks.toLocaleString()} />
-              <Stat label="Open issues" value={result.openIssues.toLocaleString()} />
+              {/* momentum gauge */}
+              <div className="mt-5">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+                    Momentum
+                  </span>
+                  <span className="text-sm text-[var(--foreground)]">
+                    {momentumLabel(data.momentumScore)}
+                  </span>
+                </div>
+                <div className="mt-2 h-2 overflow-hidden rounded-full bg-[var(--surface-raised)]">
+                  <div
+                    className="h-full rounded-full bg-[var(--accent)]"
+                    style={{ width: `${data.momentumScore}%` }}
+                  />
+                </div>
+                <p className="mt-1.5 text-right font-mono text-xs text-[var(--muted)]">
+                  {data.momentumScore}/100
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <Stat label="Stars" value={data.stars.toLocaleString()} />
+              <Stat label="Forks" value={data.forks.toLocaleString()} />
+              <Stat label="Open issues" value={data.openIssues.toLocaleString()} />
               <Stat
-                label="Last push"
-                value={
-                  result.lastPushDaysAgo === 0
-                    ? "today"
-                    : `${result.lastPushDaysAgo}d ago`
-                }
+                label="Contributors"
+                value={data.contributorsCount > 0 ? String(data.contributorsCount) : "—"}
               />
             </div>
 
-            <div>
-              <h3 className="mb-2 text-sm font-medium text-zinc-500 dark:text-zinc-400">
-                Languages
+            <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
+              <h3 className="mb-3 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+                Commit activity · last 12 weeks
               </h3>
-              <div className="flex h-4 w-full overflow-hidden rounded-full">
-                {result.languages.map((l, i) => (
-                  <div
-                    key={l.name}
-                    className="h-full"
-                    style={{
-                      width: `${l.percent}%`,
-                      backgroundColor: LANG_COLORS[i % LANG_COLORS.length],
-                    }}
-                    title={`${l.name} ${l.percent}%`}
-                  />
-                ))}
-              </div>
-              <div className="mt-2 flex flex-wrap gap-3">
-                {result.languages.map((l, i) => (
-                  <span
-                    key={l.name}
-                    className="flex items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-400"
-                  >
-                    <span
-                      className="inline-block h-2.5 w-2.5 rounded-full"
+              <div className="flex h-24 items-end gap-1.5">
+                {data.recentCommitWeeks.map((count, i) => (
+                  <div key={i} className="group flex-1">
+                    <div
+                      title={`${count} commit${count === 1 ? "" : "s"}`}
+                      className="w-full rounded-t bg-[var(--accent)]/80 transition-colors group-hover:bg-[var(--accent)]"
                       style={{
-                        backgroundColor: LANG_COLORS[i % LANG_COLORS.length],
+                        height: `${Math.max((count / maxCommits) * 96, 3)}px`,
                       }}
                     />
-                    {l.name} {l.percent}%
-                  </span>
+                  </div>
                 ))}
+              </div>
+              <div className="mt-1.5 flex justify-between font-mono text-[10px] text-[var(--muted)]">
+                <span>12w ago</span>
+                <span>now</span>
               </div>
             </div>
 
-            <div>
-              <h3 className="mb-2 text-sm font-medium text-zinc-500 dark:text-zinc-400">
-                Commits (last 12 weeks, top 100)
+            <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
+              <h3 className="mb-3 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+                Language mix
               </h3>
-              <div className="flex h-24 items-end gap-1">
-                {result.recentCommitWeeks.map((count, i) => (
+              <div className="flex h-3 overflow-hidden rounded-full bg-[var(--surface-raised)]">
+                {data.languages.map((lang, i) => (
                   <div
-                    key={i}
-                    className="flex-1 rounded-t bg-emerald-500/80"
-                    style={{ height: `${(count / maxWeek) * 100}%` }}
-                    title={`${count} commits`}
+                    key={lang.name}
+                    title={`${lang.name} ${lang.percent}%`}
+                    style={{ width: `${lang.percent}%`, backgroundColor: BAR_COLORS[i % BAR_COLORS.length] }}
                   />
                 ))}
               </div>
+              <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
+                {data.languages.map((lang, i) => (
+                  <li key={lang.name} className="flex items-center gap-1.5 text-xs text-[var(--muted)]">
+                    <span
+                      className="inline-block h-2 w-2 rounded-sm"
+                      style={{ backgroundColor: BAR_COLORS[i % BAR_COLORS.length] }}
+                    />
+                    {lang.name} <span className="font-mono">{lang.percent}%</span>
+                  </li>
+                ))}
+              </ul>
+              {data.languages.length === 0 && (
+                <p className="text-sm text-[var(--muted)]">No language data.</p>
+              )}
             </div>
 
-            <footer className="text-xs text-zinc-400">
-              License: {result.license ?? "none"} · Primary:{" "}
-              {result.primaryLanguage ?? "unknown"} · Created{" "}
-              {new Date(result.createdAt).getFullYear()}
-            </footer>
+            <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5 text-sm">
+              <h3 className="mb-3 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+                The details
+              </h3>
+              <dl className="space-y-2">
+                <Row label="Last push" value={days(data.lastPushDaysAgo)} />
+                <Row label="License" value={data.license ?? "none"} />
+                <Row
+                  label="Issues per contributor"
+                  value={data.issuesPerBranch !== null ? data.issuesPerBranch.toFixed(1) : "—"}
+                />
+                <Row label="First commit" value={new Date(data.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} />
+                <Row label="Primary language" value={data.primaryLanguage ?? "unknown"} />
+              </dl>
+            </div>
+
+            <p className="text-center font-mono text-[10px] text-[#4a4e57]">
+              gitpulse · built over one very long weekend · not affiliated with github
+            </p>
           </section>
         )}
       </main>
@@ -175,22 +239,18 @@ export default function Home() {
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg bg-zinc-100 px-4 py-3 dark:bg-zinc-900">
-      <p className="text-xs text-zinc-500 dark:text-zinc-400">{label}</p>
-      <p className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
-        {value}
-      </p>
+    <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4">
+      <p className="text-[10px] uppercase tracking-wide text-[var(--muted)]">{label}</p>
+      <p className="mt-1 font-mono text-lg font-semibold">{value}</p>
     </div>
   );
 }
 
-const LANG_COLORS = [
-  "#10b981",
-  "#3b82f6",
-  "#f59e0b",
-  "#ef4444",
-  "#8b5cf6",
-  "#06b6d4",
-  "#f97316",
-  "#64748b",
-];
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between gap-4">
+      <dt className="text-[var(--muted)]">{label}</dt>
+      <dd className="font-mono text-right">{value}</dd>
+    </div>
+  );
+}

@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 
-interface RepoMeta {
+// what github gives us back for /repos/{owner}/{repo}
+type RepoMeta = {
   full_name: string;
   description: string | null;
   stargazers_count: number;
@@ -10,10 +11,18 @@ interface RepoMeta {
   license: { spdx_id: string | null } | null;
   created_at: string;
   pushed_at: string;
-  default_branch: string;
-}
+};
 
-export interface AnalyzeResult {
+// rough in-memory cache so we don't hammer github & hit rate limits.
+// keyed by "owner/repo", expire after 10 min. fine for now — if this ever
+// gets real traffic it wants redis, not a module-level Map.
+const cache = new Map<
+  string,
+  { at: number; body: AnalyzeResponse }
+>();
+const TEN_MINS_MS = 10 * 60 * 1000;
+
+type AnalyzeResponse = {
   repo: string;
   description: string | null;
   stars: number;
@@ -23,136 +32,177 @@ export interface AnalyzeResult {
   license: string | null;
   createdAt: string;
   lastPushDaysAgo: number;
-  languages: { name: string; bytes: number; percent: number }[];
+  languages: { name: string; percent: number }[];
   recentCommitWeeks: number[];
+  contributorsCount: number;
+  issuesPerBranch: number | null;
+  momentumScore: number;
   analyzedAt: string;
-  cached: boolean;
-}
+  cached?: boolean;
+};
 
-// Simple in-memory cache keyed by "owner/repo". Fine for a single
-// server instance; upgrades to a real cache later if needed.
-const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
-const cache = new Map<string, { at: number; data: AnalyzeResult }>();
+// pull owner/repo out of a github url like
+//   https://github.com/vercel/next.js
+//   git@github.com:vercel/next.js.git
+//   vercel/next.js
+function parseRepo(input: string):
+  | { ok: true; owner: string; repo: string }
+  | { ok: false; error: string } {
+  let cleaned = input.trim();
+  if (!cleaned) return { ok: false, error: "Paste a repo link (or owner/name)." };
 
-const GITHUB_API = "https://api.github.com";
+  // strip known prefixes
+  cleaned = cleaned
+    .replace(/^https?:\/\/(www\.)?github\.com\//i, "")
+    .replace(/^git@github\.com:/i, "")
+    .replace(/\.git$/i, "");
 
-function parseRepoUrl(raw: string): { owner: string; repo: string } | null {
-  // Accept "owner/repo" or a full GitHub URL
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-  try {
-    const url = new URL(
-      trimmed.startsWith("http") ? trimmed : `https://github.com/${trimmed}`
-    );
-    if (url.hostname !== "github.com" && url.hostname !== "www.github.com")
-      return null;
-    const parts = url.pathname.split("/").filter(Boolean);
-    if (parts.length < 2) return null;
-    const [owner, repo] = parts;
-    return { owner, repo: repo.replace(/\.git$/, "") };
-  } catch {
-    return null;
+  const parts = cleaned.split("/").filter(Boolean);
+  if (parts.length < 2 || !parts[0] || !parts[1]) {
+    return { ok: false, error: "That doesn't look like a github repo. Try owner/name." };
   }
+  return { ok: true, owner: parts[0], repo: parts[1] };
 }
 
-function ghHeaders(): HeadersInit {
-  const headers: Record<string, string> = {
+// health-ish score. is this repo alive or dead?
+// weighted so the freshest few weeks matter most — a repo that was busy
+// 6 months ago should score lower than one pushing last week.
+// TODO: this formula is hand-tuned and I don't fully trust it yet.
+function computeMomentum(weeks: number[], stars: number): number {
+  const recent = weeks.slice(-4).reduce((a, b) => a + b, 0);
+  const total = weeks.reduce((a, b) => a + b, 0);
+  if (total === 0) return stars > 0 ? 12 : 0; // old project w/ watchers gets a whiff of credit
+
+  // decay heuristic: recent-4-weeks get 2x weight vs the rest
+  const ratio = recent / Math.max(total, 1);
+  const activity = Math.min(total / 20, 1); // 20 commits in 12w = probably alive
+  const score = Math.round(ratio * 55 + activity * 35 + Math.min(stars / 500, 10));
+  return Math.max(0, Math.min(score, 100));
+}
+
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const rawRepo = searchParams.get("repo") ?? "";
+  const parsed = parseRepo(rawRepo);
+
+  if (!parsed.ok) {
+    return Response.json({ error: parsed.error }, { status: 400 });
+  }
+
+  const { owner, repo } = parsed;
+  const cacheKey = `${owner}/${repo}`;
+  const hit = cache.get(cacheKey);
+  if (hit && Date.now() - hit.at < TEN_MINS_MS) {
+    return Response.json({ ...hit.body, cached: true });
+  }
+
+  const token = process.env.GITHUB_TOKEN;
+  const headers: HeadersInit = {
     Accept: "application/vnd.github+json",
-    "User-Agent": "git-pulse",
+    // github api wants a user agent or it 403s
+    "User-Agent": "gitpulse-dev",
   };
-  if (process.env.GITHUB_TOKEN) {
-    headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
-  }
-  return headers;
-}
-
-async function fetchJson<T>(path: string): Promise<T> {
-  const res = await fetch(`${GITHUB_API}${path}`, { headers: ghHeaders() });
-  if (!res.ok) {
-    throw new Error(`GitHub API ${res.status} on ${path}`);
-  }
-  return (await res.json()) as T;
-}
-
-function daysAgo(iso: string): number {
-  return Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
-}
-
-async function fetchLanguages(fullName: string) {
-  const langs = await fetchJson<Record<string, number>>(
-    `/repos/${fullName}/languages`
-  );
-  const total = Object.values(langs).reduce((a, b) => a + b, 0) || 1;
-  return Object.entries(langs)
-    .map(([name, bytes]) => ({
-      name,
-      bytes,
-      percent: Math.round((bytes / total) * 1000) / 10,
-    }))
-    .sort((a, b) => b.bytes - a.bytes)
-    .slice(0, 8);
-}
-
-// Fetches up to 100 recent commits and buckets them by ISO week
-// (most recent week last). Cheap preview of the Wk5 commit graph.
-async function fetchCommitActivity(fullName: string): Promise<number[]> {
-  const commits = await fetchJson<
-    { commit: { committer: { date: string } } }[]
-  >(`/repos/${fullName}/commits?per_page=100`);
-  const weeks: number[] = new Array(12).fill(0);
-  const now = Date.now();
-  for (const c of commits) {
-    const d = new Date(c.commit.committer.date).getTime();
-    const weekIdx = Math.floor((now - d) / (7 * 86_400_000));
-    if (weekIdx >= 0 && weekIdx < 12) weeks[11 - weekIdx] += 1;
-  }
-  return weeks;
-}
-
-export async function GET(request: NextRequest) {
-  const q = request.nextUrl.searchParams.get("repo") ?? "";
-  const parsed = parseRepoUrl(q);
-  if (!parsed) {
-    return Response.json(
-      { error: "Provide a GitHub repo URL or owner/repo" },
-      { status: 400 }
-    );
-  }
-
-  const key = `${parsed.owner}/${parsed.repo}`;
-  const hit = cache.get(key);
-  if (hit && Date.now() - hit.at < CACHE_TTL_MS) {
-    return Response.json({ ...hit.data, cached: true });
-  }
+  if (token) headers["Authorization"] = `Bearer ${token}`;
 
   try {
-    const meta = await fetchJson<RepoMeta>(`/repos/${key}`);
-    const [languages, recentCommitWeeks] = await Promise.all([
-      fetchLanguages(key),
-      fetchCommitActivity(key),
+    const base = `https://api.github.com/repos/${owner}/${repo}`;
+
+    // repo meta + languages can go in parallel, saves ~200ms per call
+    const [metaRes, langRes, commitRes, contribRes] = await Promise.all([
+      fetch(base, { headers, cache: "no-store" }),
+      fetch(`${base}/languages`, { headers, cache: "no-store" }),
+      fetch(`${base}/commits?per_page=100`, { headers, cache: "no-store" }),
+      // ?anon=1 counts anonymous contributors too (people who never signed a CLA)
+      fetch(`${base}/contributors?per_page=1&anon=1`, { headers, cache: "no-store" }),
     ]);
 
-    const data: AnalyzeResult = {
+    if (metaRes.status === 404) {
+      return Response.json(
+        { error: `Can't find ${owner}/${repo} — is it public?` },
+        { status: 404 },
+      );
+    }
+    if (!metaRes.ok) {
+      const detail =
+        metaRes.status === 403
+          ? "GitHub rate limit hit, wait a minute and try again."
+          : `GitHub API returned ${metaRes.status}`;
+      return Response.json({ error: detail }, { status: 502 });
+    }
+
+    const meta = (await metaRes.json()) as RepoMeta;
+
+    // languages + commits failing isn't fatal, show what we can
+    const langJson = langRes.ok ? ((await langRes.json()) as Record<string, number>) : {};
+    const commitJson = commitRes.ok
+      ? ((await commitRes.json()) as { commit: { committer: { date: string } } }[])
+      : [];
+    // contributors returns an array; a Link header with rel="last" tells us total count
+    let contributorsCount = 0;
+    if (contribRes.ok) {
+      const link = contribRes.headers.get("link") ?? "";
+      const lastMatch = /page=(\d+)>; rel="last"/.exec(link);
+      if (lastMatch) {
+        contributorsCount = parseInt(lastMatch[1], 10);
+      } else {
+        const body = (await contribRes.json()) as unknown[];
+        contributorsCount = Array.isArray(body) ? body.length : 0;
+      }
+    }
+
+    // percentages from byte counts github reports per language
+    const totalBytes = Object.values(langJson).reduce((a, b) => a + b, 0);
+    const languages = Object.entries(langJson)
+      .map(([name, bytes]) => ({
+        name,
+        percent: totalBytes > 0 ? Math.round((bytes / totalBytes) * 1000) / 10 : 0,
+      }))
+      .sort((a, b) => b.percent - a.percent)
+      .slice(0, 8);
+
+    // bucket last 100 commits into 12 weekly slots, newest first
+    const weeks = new Array<number>(12).fill(0);
+    const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    for (const c of commitJson) {
+      const t = new Date(c?.commit?.committer?.date ?? 0).getTime();
+      const ago = Math.floor((now - t) / WEEK_MS);
+      if (ago >= 0 && ago < 12) weeks[11 - ago]++;
+    }
+
+    const openIssues = meta.open_issues_count;
+    // issues per contributor gives a rough sense of how backed-up the
+    // maintainers are. big numbers here = abandoned-ish project.
+    const issuesPerBranch =
+      contributorsCount > 0
+        ? Math.round((openIssues / contributorsCount) * 10) / 10
+        : null;
+
+    const body: AnalyzeResponse = {
       repo: meta.full_name,
       description: meta.description,
       stars: meta.stargazers_count,
       forks: meta.forks_count,
-      openIssues: meta.open_issues_count,
+      openIssues,
       primaryLanguage: meta.language,
       license: meta.license?.spdx_id ?? null,
       createdAt: meta.created_at,
-      lastPushDaysAgo: daysAgo(meta.pushed_at),
+      lastPushDaysAgo: Math.floor(
+        (now - new Date(meta.pushed_at).getTime()) / (1000 * 60 * 60 * 24),
+      ),
       languages,
-      recentCommitWeeks,
+      recentCommitWeeks: weeks,
+      contributorsCount,
+      issuesPerBranch,
+      momentumScore: computeMomentum(weeks, meta.stargazers_count),
       analyzedAt: new Date().toISOString(),
-      cached: false,
     };
 
-    cache.set(key, { at: Date.now(), data });
-    return Response.json(data);
+    cache.set(cacheKey, { at: Date.now(), body });
+    return Response.json(body);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    const status = message.includes("404") ? 404 : 502;
-    return Response.json({ error: message }, { status });
+    const msg = err instanceof Error ? err.message : "something unexpected went wrong";
+    console.error("[analyze]", msg);
+    return Response.json({ error: msg }, { status: 500 });
   }
 }
