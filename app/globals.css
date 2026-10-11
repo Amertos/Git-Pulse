@@ -1,13 +1,14 @@
 @import "tailwindcss";
 
 :root {
-  --background: #0d0e12;
-  --surface: #16181f;
-  --surface-raised: #1c1f28;
-  --foreground: #e8e6e3;
-  --muted: #8b8f9a;
-  --line: #262a33;
-  --accent: #f2b21b; /* amber warming, like old terminal amber */
+  --background: #0c0f14;
+  --surface: #151922;
+  --surface-raised: #1b2029;
+  --foreground: #e6e8ee;
+  --muted: #8b909c;
+  --line: #282d35;
+  --accent: #e8a42a; /* warmer amber, not so lemony */
+  --cool: #6178a6; /* blue-gray for stretched-surface cards */
 }
 
 html {
@@ -15,13 +16,33 @@ html {
 }
 
 body {
-  background: var(--background);
+  background:
+    radial-gradient(1200px 600px at 80% -10%, rgba(97,120,166,0.10), transparent 60%),
+    var(--background);
   color: var(--foreground);
 }
 
 ::selection {
   background: var(--accent);
-  color: #1a1508;
+  color: #141004;
+}
+
+.card {
+  background:
+    radial-gradient(180deg at 20% 0%, rgba(255,255,255,0.04), transparent 60%),
+    var(--surface);
+  box-shadow: 0 1px 0 var(--line) inset, 0 6px 14px -10px rgba(0,0,0,0.55);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 1px 0 var(--line) inset, 0 10px 22px -12px rgba(0,0,0,0.7);
+}
+.card:active { transform: translateY(0); }
+.card-deep {
+  background:
+    radial-gradient(180deg at 10% -10%, rgba(97,120,166,0.10), transparent 70%),
+    var(--surface);
 }
 
 /* --- entrance animations ------------------------------- */
@@ -57,16 +78,116 @@ body {
   animation: fill-bar 0.7s cubic-bezier(0.2, 0.7, 0.3, 1) 0.15s both;
 }
 
-/* commit bars sprout upward, each week a hair later */
 .anim-col {
   transform-origin: bottom;
   animation: grow-col 0.6s cubic-bezier(0.2, 0.7, 0.3, 1) both;
 }
 
-/* respect people who turn this stuff off */
+/* springy recolour + scale on tappable things */
+button[type="button"].spring,
+button.spring {
+  transition: transform 0.22s cubic-bezier(0.2, 0.7, 0.2, 1), color 0.22s ease, background-color 0.22s ease, border-color 0.22s ease;
+}
+button[type="button"].spring:hover,
+button.spring:hover {
+  transform: scale(1.04);
+}
+button[type="button"].spring:active,
+button.spring:active {
+  transform: scale(0.96);
+}
+
+/* input keeps its own feel; doesn't scale */
+input:focus,
+input:focus-visible {
+  border-color: var(--accent);
+}
+
+button[type="submit"] {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+button[type="submit"]:hover:not(:disabled) {
+  transform: scale(1.02);
+}
+button[type="submit"]:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+/* cross-fade when loading message rotates */
+.rot-line {
+  transition: opacity 0.2s ease;
+}
+
+/* github-themed periodic shimmer band that drifts as you scroll */
+.scroll-shimmer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 70vh;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(232,164,42,0.10) 40%,
+    rgba(97,120,166,0.10) 70%,
+    transparent 100%
+  );
+  opacity: 0.25;
+  pointer-events: none;
+  animation: shimmer-drift 9s linear infinite;
+}
+
+/* gear sweep behind the related repos header */
+.gear-sweep {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.08;
+  background:
+    conic-gradient(
+      from 0deg at 50% 50%,
+      var(--accent) 0deg,
+      transparent 80deg,
+      var(--cool) 180deg,
+      transparent 260deg,
+      var(--accent) 360deg
+    );
+  animation: gear-spin 12s linear infinite;
+  mask: radial-gradient(farthest-side, black 55%, transparent 72%), radial-gradient(24px circle at 50% 50%, black 0%, transparent 100%);
+  -webkit-mask: radial-gradient(farthest-side, black 55%, transparent 72%), radial-gradient(24px circle at 50% 50%, black 0%, transparent 100%);
+}
+
+@keyframes shimmer-drift {
+  from { transform: translateX(-100%); opacity: 0; }
+  10% { opacity: 0.35; }
+  90% { opacity: 0.35; }
+  to { transform: translateX(100vw); opacity: 0; }
+}
+
+@keyframes gear-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes shimmer-drift {
+  from { transform: translateX(-100%); opacity: 0; }
+  10% { opacity: 0.35; }
+  90% { opacity: 0.35; }
+  to { transform: translateX(100vw); opacity: 0; }
+}
+
+@keyframes gear-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .anim-rise, .anim-fill, .anim-col {
-    animation: none;
+  .anim-rise, .anim-fill, .anim-col,
+  .scroll-shimmer, .gear-sweep,
+  button[type="button"].spring,
+  button.spring {
+    animation: none !important;
+    transition: none !important;
   }
   html { scroll-behavior: auto; }
 }

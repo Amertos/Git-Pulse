@@ -20,15 +20,32 @@ type RepoData = {
   cached?: boolean;
 };
 
-// picked these to match the amber accent in globals.css
-const BAR_COLORS = ["#f2b21b", "#e07a5f", "#81b29a", "#7b8cde", "#b58392", "#5f7d95", "#a1887f", "#78909c"];
+type RelatedData = {
+  repo: string;
+  forks: number;
+  trendItems: { full_name: string; url: string; stars: number; language: string | null; pushedDaysAgo: number }[];
+  reason: string;
+  cached?: boolean;
+};
 
+const BAR_COLORS = ["#e8a42a", "#e07a5f", "#81b29a", "#6178a6", "#b58392", "#5f7d95", "#a1887f", "#78909c"];
+
+// momentum band is the same as before; DEFCON-style label is a separate read.
 function momentumLabel(score: number): string {
   if (score >= 70) return "Open-source fire";
   if (score >= 45) return "Healthy and humming";
   if (score >= 20) return "Alive but coasting";
   if (score > 0) return "Barely a pulse";
   return "No pulse";
+}
+
+function defconBand(score: number): string {
+  // cynical, github-flavored; not real military grading.
+  if (score >= 80) return "GREEN — actually alive";
+  if (score >= 55) return "YELLOW — keep an eye on it";
+  if (score >= 30) return "ORANGE — barely breathing";
+  if (score > 0) return "RED — good luck";
+  return "BLACK — tombstone energy";
 }
 
 function days(n: number): string {
@@ -44,6 +61,8 @@ const FUN_LOADING_LINES = [
   "counting stars…",
   "reading the commit history…",
   "checking if anyone still works here…",
+  "asking github who maintains this…",
+  "measuring the commit heartbeat…",
 ];
 
 export default function Home() {
@@ -68,13 +87,18 @@ export default function Home() {
     }
   });
 
-  // rotate the loading message every ~900ms so long fetches don't feel dead
+  // rotate the loading message every ~900ms so long fetches don't feel dead.
+  // fade the line in/out so the swap isn't a hard cut.
   useEffect(() => {
     if (!loading) return;
     let i = 0;
+    setLoadingLine(FUN_LOADING_LINES[0]);
     const t = setInterval(() => {
-      i = (i + 1) % FUN_LOADING_LINES.length;
-      setLoadingLine(FUN_LOADING_LINES[i]);
+      setLoadingLine((prev) => {
+        const next = FUN_LOADING_LINES[(i + 1) % FUN_LOADING_LINES.length];
+        i = (i + 1) % FUN_LOADING_LINES.length;
+        return next;
+      });
     }, 900);
     return () => clearInterval(t);
   }, [loading]);
@@ -91,10 +115,15 @@ export default function Home() {
     });
   }
 
+  const [related, setRelated] = useState<RelatedData | null>(null);
+  const [relatedReason, setRelatedReason] = useState("");
+
   async function analyze(input: string) {
     setLoading(true);
     setError("");
     setData(null);
+    setRelated(null);
+    setRelatedReason("");
 
     try {
       const res = await fetch(`/api/analyze?repo=${encodeURIComponent(input)}`);
@@ -104,6 +133,15 @@ export default function Home() {
       remember(json.repo);
       // update the url bar so the report is linkable
       window.history.replaceState(null, "", `/?repo=${encodeURIComponent(json.repo)}`);
+
+      // related panel is softer than the report; stale is fine, fetch after.
+      const lang = json.primaryLanguage ?? "";
+      const rr = await fetch(`/api/related?repo=${encodeURIComponent(json.repo)}${lang ? `&lang=${encodeURIComponent(lang)}` : ""}`);
+      const rj = await rr.json();
+      if (rr.ok) {
+        setRelated(rj);
+        setRelatedReason(rj.reason);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error, try again.");
     } finally {
@@ -165,7 +203,7 @@ export default function Home() {
           <button
             type="submit"
             disabled={loading}
-            className="shrink-0 rounded-lg bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-[#1a1508] transition-opacity disabled:opacity-40 hover:opacity-85"
+            className="spring shrink-0 rounded-lg bg-[var(--accent)] px-5 py-2.5 text-sm font-semibold text-[#1a1508] disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? "Checking…" : "Analyze"}
           </button>
@@ -227,19 +265,18 @@ export default function Home() {
         )}
 
         {data && (
-          <section className="mt-8 space-y-4 pb-16">
-            <div className="anim-rise rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <h2 className="truncate text-xl font-semibold">{data.repo}</h2>
-                  <p className="mt-1 text-sm text-[var(--muted)]">
-                    {data.description ?? "No description provided."}
-                  </p>
+          <section className="mt-8 space-y-4 pb-16">              <div className="anim-rise card rounded-xl border border-[var(--line)] p-5">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <h2 className="truncate text-xl font-semibold">{data.repo}</h2>
+                    <p className="mt-1 text-sm text-[var(--muted)]">
+                      {data.description ?? "No description provided."}
+                    </p>
+                  </div>
+                  <span className="shrink-0 font-mono text-[10px] uppercase text-[var(--muted)]">
+                    {data.cached ? "cached" : "fresh"}
+                  </span>
                 </div>
-                <span className="shrink-0 font-mono text-[10px] uppercase text-[var(--muted)]">
-                  {data.cached ? "cached" : "fresh"}
-                </span>
-              </div>
 
               {/* copy-link button — handy for dropping the report in slack */}
               <button
@@ -277,7 +314,7 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="anim-rise anim-delay-1 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="anim-rise anim-delay-1 grid grid-cols-2 gap-3">
               <Stat label="Stars" value={data.stars.toLocaleString()} />
               <Stat label="Forks" value={data.forks.toLocaleString()} />
               <Stat label="Open issues" value={data.openIssues.toLocaleString()} />
@@ -287,7 +324,7 @@ export default function Home() {
               />
             </div>
 
-            <div className="anim-rise anim-delay-2 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
+            <div className="anim-rise anim-delay-2 card rounded-xl border border-[var(--line)] p-5">
               <h3 className="mb-3 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
                 Commit activity · last 12 weeks
               </h3>
@@ -311,7 +348,7 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="anim-rise anim-delay-3 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
+            <div className="anim-rise anim-delay-3 card rounded-xl border border-[var(--line)] p-5">
               <h3 className="mb-3 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
                 Language mix
               </h3>
@@ -341,7 +378,7 @@ export default function Home() {
               )}
             </div>
 
-            <div className="anim-rise anim-delay-4 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5 text-sm">
+            <div className="anim-rise anim-delay-4 card rounded-xl border border-[var(--line)] p-5 text-sm">
               <h3 className="mb-3 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
                 The details
               </h3>
@@ -357,19 +394,85 @@ export default function Home() {
               </dl>
             </div>
 
-            <p className="text-center font-mono text-[10px] text-[#4a4e57]">
+            {/* related repos panel — recent forks + same-language trending */}
+            {related && (
+              <div className="anim-rise anim-delay-4 card-deep rounded-xl border border-[var(--line)] p-5 relative overflow-hidden">
+                <div className="gear-sweep" aria-hidden="true" />
+                <h3 className="mb-1 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+                  Around this repo
+                </h3>
+                <p className="mb-4 text-[11px] text-[#6b7280] italic">
+                  {relatedReason}
+                </p>
+
+                <div className="mb-4 flex items-baseline gap-2">
+                  <span className="text-xs text-[var(--muted)]">recent forks</span>
+                  <span className="font-mono text-sm text-[var(--foreground)]">{related.forks.toLocaleString()}</span>
+                  {related.forks >= 3000 && (
+                    <span className="ml-auto rounded-md border border-[var(--accent)]/40 bg-[var(--accent)]/10 px-2 py-0.5 text-[10px] font-semibold uppercase text-[var(--accent)]">
+                      high fork count
+                    </span>
+                  )}
+                </div>
+
+                {related.trendItems.length > 0 ? (
+                  <ul className="space-y-2">
+                    {related.trendItems.map((t) => (
+                      <li key={t.full_name} className="flex items-center justify-between gap-3 rounded border border-[var(--line)] px-3 py-2">
+                        <a
+                          href={t.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="min-w-0 flex-1 text-left text-sm text-[var(--foreground)] hover:text-[var(--accent)]"
+                        >
+                          {t.full_name}
+                        </a>
+                        <div className="shrink-0 flex items-center gap-2 text-[10px] text-[var(--muted)]">
+                          {t.stars > 0 && (
+                            <span className="font-mono">
+                              {t.stars >= 1000
+                                ? `${(t.stars / 1000).toFixed(1)}k`
+                                : String(t.stars)}
+                            </span>
+                          )}
+                          {t.language && <span className="uppercase">{t.language}</span>}
+                          {t.pushedDaysAgo <= 7 && <span className="text-[var(--accent)]">active</span>}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-[var(--muted)]">
+                    nothing trending in the same lane right now — could be a quiet corner of github.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* cynical debrief for the report card */}
+            {data && (
+              <div className="mt-5 rounded border border-[var(--line)] bg-[var(--surface-raised)]/40 px-4 py-3 text-[11px] leading-relaxed text-[#b9bdc6]">
+                <span className="font-semibold text-[var(--accent)]">{defconBand(data.momentumScore)}</span>
+                <span className="text-[var(--muted)]">
+                  &nbsp;&middot;&nbsp; gear ratio: the repo's current velocity vs its own history &mdash; not vs anyone else's repo.
+                </span>
+              </div>
+            )}
+
+            <p className="mt-8 text-center font-mono text-[10px] text-[#52565f]">
               gitpulse · built over one very long weekend · not affiliated with github
             </p>
           </section>
         )}
       </main>
+      <div className="scroll-shimmer" aria-hidden="true" />
     </div>
   );
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4">
+    <div className="card rounded-xl border border-[var(--line)] p-4">
       <p className="text-[10px] uppercase tracking-wide text-[var(--muted)]">{label}</p>
       <p className="mt-1 font-mono text-lg font-semibold">{value}</p>
     </div>
